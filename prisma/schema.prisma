@@ -22,4 +22,29 @@ model User {
   last_login      DateTime
   create_at       DateTime @default(now())
   updated_at      DateTime @updatedAt
+  refresh_tokens  Refresh_token[]
+}
+
+
+model Refresh_token {
+  token_id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id      String   @db.Uuid
+  token_hash   String
+  expires_at   DateTime
+  revoked      Boolean  @default(false)
+  created_at   DateTime @default(now())
+
+  user         User @relation(fields: [user_id], references: [user_id])
+
+  @@index([user_id])
+}
+model Otp {
+  otp_id      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mobile      String
+  otp_hash    String
+  expires_at  DateTime
+  verified    Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  @@index([mobile])
 }

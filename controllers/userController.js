@@ -1,6 +1,46 @@
 import bcrypt from "bcrypt"
 import { prisma }  from "../models/db.js";
 
+import * as authService from "../services/authService.js"
+
+export const sendOtp = async (req, res) => {
+  try {
+    const result = await authService.sendOtp(req.body.mobile);
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      message: error.message || "Internal Server Error",
+    });
+  }
+};
+
+export const verifyOtp = async (req, res) => {
+  try {
+    const result = await authService.verifyOtp(
+      req.body.mobile,
+      req.body.otp
+    );
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      message: error.message || "Internal Server Error",
+    });
+  }
+};
+
+export const refreshToken = async (req, res) => {
+  try {
+    const result = await authService.refreshToken(
+      req.body.refreshToken
+    );
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      message: error.message || "Internal Server Error",
+    });
+  }
+};
+
 
 
 
