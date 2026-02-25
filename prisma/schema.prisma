@@ -38,13 +38,4 @@ model Refresh_token {
 
   @@index([user_id])
 }
-model Otp {
-  otp_id      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  mobile      String
-  otp_hash    String
-  expires_at  DateTime
-  verified    Boolean  @default(false)
-  created_at  DateTime @default(now())
 
-  @@index([mobile])
-}

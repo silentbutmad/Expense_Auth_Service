@@ -5,8 +5,34 @@ import * as authService from "../services/authService.js"
 
 export const sendOtp = async (req, res) => {
   try {
-    const result = await authService.sendOtp(req.body.mobile);
+    const { mobile } = req.body;
+
+    if (!mobile) {
+      return res.status(400).json({
+        message: "Mobile is required",
+      });
+    }
+
+    // ✅ Extract IP
+    const ip =
+      req.headers["x-forwarded-for"]?.split(",")[0] ||
+      req.socket.remoteAddress;
+
+    // ✅ Extract Device ID (frontend must send this)
+    const deviceId = req.headers["x-device-id"] || "unknown-device";
+
+    // ✅ Extract Country (if using Cloudflare)
+    const country = req.headers["cf-ipcountry"] || "unknown";
+
+    const result = await authService.sendOtp({
+      mobile,
+      ip,
+      deviceId,
+      country,
+    });
+
     return res.status(200).json(result);
+
   } catch (error) {
     return res.status(error.status || 500).json({
       message: error.message || "Internal Server Error",
@@ -16,11 +42,21 @@ export const sendOtp = async (req, res) => {
 
 export const verifyOtp = async (req, res) => {
   try {
-    const result = await authService.verifyOtp(
-      req.body.mobile,
-      req.body.otp
-    );
+    const { mobile, otp } = req.body;
+
+    if (!mobile || !otp) {
+      return res.status(400).json({
+        message: "Mobile and OTP are required",
+      });
+    }
+
+    const result = await authService.verifyOtp({
+      mobile,
+      otp,
+    });
+
     return res.status(200).json(result);
+
   } catch (error) {
     return res.status(error.status || 500).json({
       message: error.message || "Internal Server Error",
@@ -41,7 +77,20 @@ export const refreshToken = async (req, res) => {
   }
 };
 
+export const logout = async (req, res) => {
+  try {
+    const result = await authService.logout(
+      req.body.refreshToken
+    );
 
+    res.status(200).json(result);
+
+  } catch (error) {
+    res.status(error.status || 500).json({
+      message: error.message || "Internal Server Error",
+    });
+  }
+};
 
 
 export const registerUser = async(req,res)=>

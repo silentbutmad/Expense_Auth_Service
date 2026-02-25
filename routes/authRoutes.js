@@ -1,12 +1,13 @@
 import express from 'express'
-import { registerUser } from '../controllers/userController.js';
+import { registerUser, refreshToken , sendOtp, verifyOtp, logout} from '../controllers/userController.js';
+
 const router = express.Router();
 
 router.post('/signup',registerUser);
 //router.post('/login',);
-//router.post('/logout',)
-//router.post('/verify-otp',);
-//router.post('/generate-otp',);
-//router.post('/refresh-token',)
+router.post('/logout',logout)
+router.post('/verify-otp',verifyOtp);
+router.post('/generate-otp',sendOtp);
+router.post('/refresh-token',refreshToken)
 
 export default router;
