@@ -3,6 +3,65 @@ import { prisma }  from "../models/db.js";
 
 import * as authService from "../services/authService.js"
 
+export const login= async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // 1️⃣ Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "Email and password are required"
+      });
+    }
+
+    // 2️⃣ Find user by email
+    const user = await prisma.User.findUnique({
+      where: { email }
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        message: "Invalid email or password"
+      });
+    }
+
+    // 3️⃣ Compare password with stored password_hash
+    const isMatch = await bcrypt.compare(
+      password,
+      user.password_hash
+    );
+
+    if (!isMatch) {
+      return res.status(401).json({
+        message: "Invalid email or password"
+      });
+    }
+
+    // 4️⃣ Update last login
+    await prisma.User.update({
+      where: { user_id: user.user_id },
+      data: {
+        last_login: new Date()
+      }
+    });
+
+    // 5️⃣ OPTIONAL: Send OTP for 2FA
+    // await sendOtp({ mobile: user.mobile_number })
+
+    return res.status(200).json({
+      message: "Login successful",
+      user_id: user.user_id,
+      mobile: user.mobile_number
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      message: "Internal server error"
+    });
+  }
+};
+
 export const sendOtp = async (req, res) => {
   try {
     const { mobile } = req.body;
@@ -97,15 +156,22 @@ export const registerUser = async(req,res)=>
 {
     try {
 
-        const {firstname,lastname,email,mobile,password}=req.body;
+        const {firstname,lastname,email,mobile,password,conform_password}=req.body;
         
         // vaildation at server side
 
         // check required field
-        if (!firstname || !email || !mobile || !password) 
+        if (!firstname || !email || !mobile || !password || !conform_password) 
         {
             return res.status(400).json({ message: "Missing required fields" });
         }
+
+        // conform password 
+        if( password != conform_password)
+        {
+            return res.status(400).json({ message: "Password and Conform Password must be same" });
+        }
+
 
         // validate email
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -113,7 +179,8 @@ export const registerUser = async(req,res)=>
         {
             return res.status(400).json({ message: "Invalid email format" });
         }
-
+         
+        
         //validate mobile number
         const dbmobile ="+91"+mobile;
         const mobileRegex = /^\+[1-9]\d{9,14}$/;

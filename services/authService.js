@@ -1,12 +1,56 @@
 import * as authRepo from "../repositories/authrepository.js";
-import { generateOTP } from "../utils/otp.js";
 import { hashString } from "../utils/hash.js";
 import { generateAccessToken, generateRefreshToken } from "../utils/jwt.js";
 import jwt from "jsonwebtoken";
 import {sendSmsOtp} from "../utils/sms.js"
-
+import { prisma }  from "../models/db.js";
 import { redis } from "../models/redis.js";
 import crypto from "crypto";
+
+
+export const login = async ({ email, password }) => {
+
+  if (!email) {
+  throw { status: 400, message: "Email is required" };
+}
+  // 1️⃣ Find user by email
+  const user = await prisma.User.findUnique({
+    where: { email }
+  });
+
+  if (!user) {
+    const error = new Error("Invalid email or password");
+    error.status = 401;
+    throw error;
+  }
+
+  // 2️⃣ Compare password with password_hash
+  const isMatch = await bcrypt.compare(
+    password,
+    user.password_hash
+  );
+
+  if (!isMatch) {
+    const error = new Error("Invalid email or password");
+    error.status = 401;
+    throw error;
+  }
+
+  // 3️⃣ Update last_login
+  await prisma.User.update({
+    where: { user_id: user.user_id },
+    data: { last_login: new Date() }
+  });
+
+  // 4️⃣ Return response
+  return {
+    message: "Login successful",
+    user_id: user.user_id,
+    mobile: user.mobile_number
+  };
+};
+
+
 
 export const sendOtp = async ({ mobile, ip, deviceId, country }) => {
 
@@ -41,12 +85,12 @@ export const sendOtp = async ({ mobile, ip, deviceId, country }) => {
   }
 
   // 5️⃣ Country rate limit (500 per 5 min)
-  const countryKey = `otp:country:${country}`;
+  /*const countryKey = `otp:country:${country}`;
   const countryCount = await redis.incr(countryKey);
   if (countryCount === 1) await redis.expire(countryKey, 300);
   if (countryCount > 500) {
     throw { status: 429, message: "Country rate limit exceeded" };
-  }
+  }*/
 
   // 6️⃣ Generate OTP
   const otp = crypto.randomInt(100000, 999999).toString();

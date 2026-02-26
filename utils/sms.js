@@ -1,22 +1,39 @@
-import twilio from "twilio";
-
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
+import axios from "axios";
 
 export const sendSmsOtp = async (mobile, otp) => {
+  const message = `Your OTP is ${otp}. Valid for 5 minutes.`;
+
   try {
-    await client.messages.create({
-      body: `Your OTP is ${otp}. It expires in 5 minutes.`,
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: mobile,
-    });
+    const response = await axios.post(
+      "https://api.textlocal.in/send/",
+      new URLSearchParams({
+        apikey: process.env.SMS_API_KEY,
+        numbers: mobile,
+        message: message,
+        sender: process.env.SMS_SENDER,
+        ...(process.env.SMS_TEMPLATE_ID && {
+          template_id: process.env.SMS_TEMPLATE_ID,
+        }),
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        timeout: 10000,
+      }
+    );
+
+    console.log("SMS Response:", response.data);
+
+    if (response.data.status !== "success") {
+      throw new Error(
+        response.data.errors?.[0]?.message || "SMS sending failed"
+      );
+    }
+
+    return true;
   } catch (error) {
-    console.error("Twilio error:", error.message);
-    throw {
-      status: 500,
-      message: "Failed to send OTP",
-    };
+    console.error("SMS Error:", error.response?.data || error.message);
+    throw error;
   }
 };

@@ -1,10 +1,10 @@
 import express from 'express'
-import { registerUser, refreshToken , sendOtp, verifyOtp, logout} from '../controllers/userController.js';
+import { registerUser, refreshToken , sendOtp, verifyOtp, logout, login } from '../controllers/userController.js';
 
 const router = express.Router();
 
 router.post('/signup',registerUser);
-//router.post('/login',);
+router.post("/login", login);
 router.post('/logout',logout)
 router.post('/verify-otp',verifyOtp);
 router.post('/generate-otp',sendOtp);
