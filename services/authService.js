@@ -6,6 +6,7 @@ import {sendSmsOtp} from "../utils/sms.js"
 import { prisma }  from "../models/db.js";
 import { redis } from "../models/redis.js";
 import crypto from "crypto";
+import {sendEmail} from "../utils/email.js"
 
 
 export const login = async ({ email, password }) => {
@@ -49,8 +50,6 @@ export const login = async ({ email, password }) => {
     mobile: user.mobile_number
   };
 };
-
-
 
 export const sendOtp = async ({ mobile, ip, deviceId, country }) => {
 
@@ -209,4 +208,100 @@ export const logout = async (refreshToken) => {
   });
 
   return { message: "Logged out successfully" };
+};
+
+export const sendEmailOtp = async ({ email, ip, deviceId }) => {
+
+  // 1️⃣ 30 sec cooldown per email
+  const cooldownKey = `emailotp:cooldown:${email}`;
+  if (await redis.get(cooldownKey)) {
+    throw { status: 429, message: "Wait 30 sec before retrying" };
+  }
+
+  // 2️⃣ IP rate limit (20 per 5 min)
+  const ipKey = `emailotp:ip:${ip}`;
+  const ipCount = await redis.incr(ipKey);
+  if (ipCount === 1) await redis.expire(ipKey, 300);
+  if (ipCount > 20) {
+    throw { status: 429, message: "Too many OTP requests from IP" };
+  }
+
+  // 3️⃣ Email rate limit (5 per 5 min)
+  const emailKey = `emailotp:user:${email}`;
+  const emailCount = await redis.incr(emailKey);
+  if (emailCount === 1) await redis.expire(emailKey, 300);
+  if (emailCount > 5) {
+    throw { status: 429, message: "Too many OTP requests for this email" };
+  }
+
+  // 4️⃣ Device rate limit (10 per 5 min)
+  const deviceKey = `emailotp:device:${deviceId}`;
+  const deviceCount = await redis.incr(deviceKey);
+  if (deviceCount === 1) await redis.expire(deviceKey, 300);
+  if (deviceCount > 10) {
+    throw { status: 429, message: "Device rate limit exceeded" };
+  }
+
+  // 5️⃣ Generate OTP
+  const otp = crypto.randomInt(100000, 999999).toString();
+  const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
+
+  console.log("otp gentreted")
+
+  // 6️⃣ Send Email FIRST
+  try {
+    await sendEmail(email, otp); // 👈 your email sender function
+  } catch (err) {
+    throw { status: 500, message: "Failed to send OTP Email" };
+  }
+
+  // 7️⃣ Store OTP (5 min expiry)
+  await redis.set(
+    `emailotp:${email}`,
+    JSON.stringify({ otpHash, attempts: 0 }),
+    "EX",
+    300
+  );
+
+  // 8️⃣ Set cooldown 30 sec
+  await redis.set(cooldownKey, "1", "EX", 30);
+
+  return { message: "Email OTP sent securely" };
+};
+
+export const verifyEmailOtp = async ({ email, otp }) => {
+
+  const otpKey = `emailotp:${email}`;
+  const data = await redis.get(otpKey);
+
+  if (!data) {
+    throw { status: 400, message: "OTP expired or not found" };
+  }
+
+  const parsed = JSON.parse(data);
+
+  const hashedOtp = crypto
+    .createHash("sha256")
+    .update(otp)
+    .digest("hex");
+
+  if (hashedOtp !== parsed.otpHash) {
+
+    parsed.attempts += 1;
+
+    // Max 3 attempts
+    if (parsed.attempts >= 3) {
+      await redis.del(otpKey);
+      throw { status: 403, message: "Max attempts exceeded" };
+    }
+
+    await redis.set(otpKey, JSON.stringify(parsed), "KEEPTTL");
+
+    throw { status: 400, message: "Incorrect OTP" };
+  }
+
+  // ✅ Success → delete OTP immediately
+  await redis.del(otpKey);
+
+  return { message: "Email OTP verified successfully" };
 };
