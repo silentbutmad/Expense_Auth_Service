@@ -10,6 +10,9 @@ app.use(express.urlencoded({extended:true}))
 app.use(express.json());
 app.use(cors())
 
+app.get("/health", (req, res) => res.json({ status: "UP" }));
+app.get("/status", (req, res) => res.send("OK"));
+
 
 app.use('/auth',authRoutes);
 
