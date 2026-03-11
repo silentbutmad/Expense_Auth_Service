@@ -3,62 +3,20 @@ import { prisma }  from "../models/db.js";
 
 import * as authService from "../services/authService.js"
 
-export const login= async (req, res) => {
+
+export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
 
-    // 1️⃣ Validate required fields
-    if (!email || !password) {
-      return res.status(400).json({
-        message: "Email and password are required"
-      });
-    }
+    const result = await authService.login(req.body);
 
-    // 2️⃣ Find user by email
-    const user = await prisma.User.findUnique({
-      where: { email }
-    });
-
-    if (!user) {
-      return res.status(401).json({
-        message: "Invalid email or password"
-      });
-    }
-
-    // 3️⃣ Compare password with stored password_hash
-    const isMatch = await bcrypt.compare(
-      password,
-      user.password_hash
-    );
-
-    if (!isMatch) {
-      return res.status(401).json({
-        message: "Invalid email or password"
-      });
-    }
-
-    // 4️⃣ Update last login
-    await prisma.User.update({
-      where: { user_id: user.user_id },
-      data: {
-        last_login: new Date()
-      }
-    });
-
-    // 5️⃣ OPTIONAL: Send OTP for 2FA
-    // await sendOtp({ mobile: user.mobile_number })
-
-    return res.status(200).json({
-      message: "Login successful",
-      user_id: user.user_id,
-      mobile: user.mobile_number
-    });
+    return res.status(200).json(result);
 
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      message: "Internal server error"
+
+    return res.status(error.status || 500).json({
+      message: error.message || "Internal Server Error"
     });
+
   }
 };
 
@@ -151,7 +109,6 @@ export const logout = async (req, res) => {
   }
 };
 
-
 export const registerUser = async(req,res)=>
 {
     try {
@@ -238,8 +195,6 @@ export const registerUser = async(req,res)=>
     }
 }
 
-
-
 export const sendEmailOtpController = async (req, res) => {
   try {
     const { email } = req.body;
@@ -294,3 +249,70 @@ export const verifyEmailOtpController = async (req, res) => {
     });
   }
 };
+
+export const forgotPassword = async (req, res) => {
+  try {
+
+    const { email } = req.body;
+
+    const result = await authService.forgotPassword({
+      email,
+      ip: req.ip,
+      deviceId: req.headers["device-id"]
+    });
+
+    res.status(200).json(result);
+
+  } catch (error) {
+
+    res.status(error.status || 500).json({
+      message: error.message
+    });
+
+  }
+};
+
+export const resetPassword = async (req, res) => {
+  try {
+
+    const { email, otp, newPassword } = req.body;
+
+    const result = await authService.resetPassword({
+      email,
+      otp,
+      newPassword
+    });
+
+    res.status(200).json(result);
+
+  } catch (error) {
+
+    res.status(error.status || 500).json({
+      message: error.message || "Internal Server Error"
+    });
+
+  }
+};
+
+export const changePassword = async (req, res) => {
+  try {
+
+    const { oldPassword, newPassword } = req.body;
+
+    const result = await authService.changePassword({
+      userId: req.user.user_id,   // from JWT middleware
+      oldPassword,
+      newPassword
+    });
+
+    res.status(200).json(result);
+
+  } catch (error) {
+
+    res.status(error.status || 500).json({
+      message: error.message || "Internal Server Error"
+    });
+
+  }
+};
+

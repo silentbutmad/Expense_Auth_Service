@@ -7,50 +7,63 @@ import { prisma }  from "../models/db.js";
 import { redis } from "../models/redis.js";
 import crypto from "crypto";
 import {sendEmail} from "../utils/email.js"
+import bcrypt from "bcrypt"
 
 
 export const login = async ({ email, password }) => {
 
-  if (!email) {
-  throw { status: 400, message: "Email is required" };
-}
-  // 1️⃣ Find user by email
+  if (!email || !password) {
+    throw { status: 400, message: "Email and password are required" };
+  }
+
+  // 1️⃣ Find user
   const user = await prisma.User.findUnique({
     where: { email }
   });
 
   if (!user) {
-    const error = new Error("Invalid email or password");
-    error.status = 401;
-    throw error;
+    throw { status: 401, message: "Invalid email or password" };
   }
 
-  // 2️⃣ Compare password with password_hash
-  const isMatch = await bcrypt.compare(
-    password,
-    user.password_hash
-  );
+  // 2️⃣ Compare password
+  const isMatch = await bcrypt.compare(password, user.password_hash);
 
   if (!isMatch) {
-    const error = new Error("Invalid email or password");
-    error.status = 401;
-    throw error;
+    throw { status: 401, message: "Invalid email or password" };
   }
 
-  // 3️⃣ Update last_login
+  // 3️⃣ Generate Access Token
+const accessToken = generateAccessToken(user);
+
+  // 4️⃣ Generate Refresh Token
+ const refreshToken = generateRefreshToken(user);
+
+  // 5️⃣ Save refresh token in DB
+  const tokenHash = crypto
+  .createHash("sha256")
+  .update(refreshToken)
+  .digest("hex");
+
+await prisma.refresh_token.create({
+  data: {
+    user_id: user.user_id,
+    token_hash: tokenHash,
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  }
+});
+
+  // 6️⃣ Update last login
   await prisma.User.update({
     where: { user_id: user.user_id },
     data: { last_login: new Date() }
   });
 
-  // 4️⃣ Return response
   return {
     message: "Login successful",
-    user_id: user.user_id,
-    mobile: user.mobile_number
+    accessToken,
+    refreshToken
   };
 };
-
 export const sendOtp = async ({ mobile, ip, deviceId, country }) => {
 
   // 1️⃣ 30 sec cooldown per mobile
@@ -304,4 +317,98 @@ export const verifyEmailOtp = async ({ email, otp }) => {
   await redis.del(otpKey);
 
   return { message: "Email OTP verified successfully" };
+};
+
+export const forgotPassword = async ({ email, ip, deviceId }) => {
+
+  if (!email) {
+    throw { status: 400, message: "Email required" };
+  }
+
+  const user = await prisma.User.findUnique({
+    where: { email }
+  });
+
+  if (!user) {
+    throw { status: 404, message: "User not found" };
+  }
+
+  // reuse existing email OTP
+  await sendEmailOtp({ email, ip, deviceId });
+
+  return {
+    message: "Password reset OTP sent to email"
+  };
+};
+
+export const resetPassword = async ({ email, otp, newPassword }) => {
+
+  if (!email || !otp || !newPassword) {
+    throw { status: 400, message: "Email, OTP and new password required" };
+  }
+
+  // verify OTP using existing function
+  await verifyEmailOtp({ email, otp });
+
+  // hash new password
+  const salt = await bcrypt.genSalt(16);
+  const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+  // update password
+  await prisma.User.update({
+    where: { email },
+    data: {
+      password_hash: hashedPassword,
+      salt
+    }
+  });
+
+  return {
+    message: "Password reset successful"
+  };
+};
+
+export const changePassword = async ({ userId, oldPassword, newPassword }) => {
+
+  if (!oldPassword || !newPassword) {
+    throw { status: 400, message: "Old password and new password required" };
+  }
+
+  // 1️⃣ Find user
+  const user = await prisma.User.findUnique({
+    where: { user_id: userId }
+  });
+
+  if (!user) {
+    throw { status: 404, message: "User not found" };
+  }
+
+  // 2️⃣ Verify old password
+  const isMatch = await bcrypt.compare(oldPassword, user.password_hash);
+
+  if (!isMatch) {
+    throw { status: 401, message: "Old password is incorrect" };
+  }
+
+  // 3️⃣ Hash new password
+  const salt = await bcrypt.genSalt(16);
+  const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+  // 4️⃣ Update password
+  await prisma.User.update({
+    where: { user_id: userId },
+    data: {
+      password_hash: hashedPassword,
+      salt
+    }
+  });
+
+  // 5️⃣ Invalidate all refresh tokens (security)
+  await prisma.refresh_token.deleteMany({
+    where: { user_id: userId }
+  });
+
+  return {
+    message: "Password changed successfully. Please login again."
+  };
 };
