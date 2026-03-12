@@ -31,8 +31,5 @@ const eureka = new Eureka({
   }
 });
 
-eureka.start(error => {
-  console.log(error || "AUTH-SERVICE registered with Eureka");
-});
 
 export default eureka;
