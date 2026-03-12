@@ -2,6 +2,7 @@ import express from "express"
 import authRoutes from './routes/authRoutes.js'
 import 'dotenv/config'
 import cors from 'cors'
+import eureka from './eureka-client.js';  // Import Eureka client
 
 const app = express();
 const PORT = process.env.PORT || 3000;
