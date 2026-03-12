@@ -2,7 +2,7 @@ import express from "express"
 import authRoutes from './routes/authRoutes.js'
 import 'dotenv/config'
 import cors from 'cors'
-import eureka from "./eurekaregister.js";
+import eureka from "./eurukaregister.js";
 
 
 const app = express();

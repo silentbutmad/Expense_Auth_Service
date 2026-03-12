@@ -4,13 +4,22 @@ const eureka = new Eureka({
   instance: {
     app: "AUTH-SERVICE",
     hostName: "expense-auth-service-xofu.onrender.com",
-    port: 443,
+    ipAddr: "expense-auth-service-xofu.onrender.com",
+
+    port: {
+      "$": 443,
+      "@enabled": true
+    },
+
     vipAddress: "AUTH-SERVICE",
+
     statusPageUrl: "https://expense-auth-service-xofu.onrender.com/status",
     healthCheckUrl: "https://expense-auth-service-xofu.onrender.com/health",
+    homePageUrl: "https://expense-auth-service-xofu.onrender.com",
+
     dataCenterInfo: {
       name: "MyOwn",
-      class: "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo"
+      "@class": "com.netflix.appinfo.InstanceInfo$DefaultDataCenterInfo"
     }
   },
 
@@ -22,4 +31,8 @@ const eureka = new Eureka({
   }
 });
 
-eureka.start();
+eureka.start(error => {
+  console.log(error || "AUTH-SERVICE registered with Eureka");
+});
+
+export default eureka;
