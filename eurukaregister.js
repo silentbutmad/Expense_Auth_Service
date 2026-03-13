@@ -3,6 +3,7 @@ import { Eureka } from "eureka-js-client";
 const eureka = new Eureka({
   instance: {
     app: "AUTH-SERVICE",
+
     hostName: "expense-auth-service-xofu.onrender.com",
     ipAddr: "expense-auth-service-xofu.onrender.com",
 
@@ -24,12 +25,11 @@ const eureka = new Eureka({
   },
 
   eureka: {
-    host: "https://eurekadiscoveryserver.onrender.com",
+    host: "eurekadiscoveryserver.onrender.com",
     port: 443,
-    servicePath: "/eureka/apps/",
-    secure: true
+    servicePath: "/eureka/",
+    ssl: true
   }
 });
-
 
 export default eureka;
