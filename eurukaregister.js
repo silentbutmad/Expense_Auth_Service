@@ -33,7 +33,7 @@ const eureka = new Eureka({
     requestMiddleware: (requestOpts, done) => {
       requestOpts.auth = {
         user: "admin",
-        password: "admin@123"
+        password: "admin123"
       };
       done(requestOpts);
     }
