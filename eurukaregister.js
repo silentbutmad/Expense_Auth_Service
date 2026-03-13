@@ -25,10 +25,18 @@ const eureka = new Eureka({
   },
 
   eureka: {
-    host: "admin:admin@123@eurekadiscoveryserver.onrender.com",
+    host: "eurekadiscoveryserver.onrender.com",
     port: 443,
     servicePath: "/eureka/apps/",
-    secure: true
+    secure: true,
+
+    requestMiddleware: (requestOpts, done) => {
+      requestOpts.auth = {
+        user: "admin",
+        password: "admin@123"
+      };
+      done(requestOpts);
+    }
   }
 });
 
