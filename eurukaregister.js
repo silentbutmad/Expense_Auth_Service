@@ -28,7 +28,12 @@ const eureka = new Eureka({
     host: "eurekadiscoveryserver.onrender.com",
     port: 443,
     servicePath: "/eureka/",
-    ssl: true
+    ssl: true,
+
+    auth: {
+      user: "admin",
+      password: "admin@123"
+    }
   }
 });
 
