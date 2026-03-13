@@ -8,7 +8,7 @@ const eureka = new Eureka({
     ipAddr: "expense-auth-service-xofu.onrender.com",
 
     port: {
-      "$": 443,
+      "$": process.env.PORT,
       "@enabled": true
     },
 
@@ -25,15 +25,10 @@ const eureka = new Eureka({
   },
 
   eureka: {
-    host: "eurekadiscoveryserver.onrender.com",
+    host: "admin:admin@123@eurekadiscoveryserver.onrender.com",
     port: 443,
-    servicePath: "/eureka/apps",
-    ssl: true,
-
-    auth: {
-      user: "admin",
-      password: "admin@123"
-    }
+    servicePath: "/eureka/apps/",
+    secure: true
   }
 });
 
