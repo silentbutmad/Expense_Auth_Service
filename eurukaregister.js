@@ -24,7 +24,7 @@ const eureka = new Eureka({
   },
 
   eureka: {
-    host: "eurekadiscoveryserver.onrender.com",
+    host: "https://eurekadiscoveryserver.onrender.com",
     port: 443,
     servicePath: "/eureka/apps/",
     secure: true
