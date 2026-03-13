@@ -1,6 +1,9 @@
 import { Eureka } from "eureka-js-client";
 
+const PORT = process.env.PORT || 8000;
+
 const eureka = new Eureka({
+
   instance: {
     app: "AUTH-SERVICE",
 
@@ -8,7 +11,7 @@ const eureka = new Eureka({
     ipAddr: "expense-auth-service-xofu.onrender.com",
 
     port: {
-      "$": process.env.PORT,
+      "$": PORT,
       "@enabled": true
     },
 
@@ -25,19 +28,20 @@ const eureka = new Eureka({
   },
 
   eureka: {
-    host: "eurekadiscoveryserver.onrender.com",
-    port: 443,
-    servicePath: "/eureka/apps/",
-    secure: true,
 
-    requestMiddleware: (requestOpts, done) => {
-      requestOpts.auth = {
-        user: "admin",
-        password: "admin123"
-      };
-      done(requestOpts);
-    }
+    serviceUrls: {
+      default: [
+        "https://admin:admin123@eurekadiscoveryserver.onrender.com/eureka/"
+      ]
+    },
+
+    heartbeatInterval: 30000,
+    registryFetchInterval: 30000,
+
+    maxRetries: 3,
+    requestRetryDelay: 2000
   }
+
 });
 
 export default eureka;
