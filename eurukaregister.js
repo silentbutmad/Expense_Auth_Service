@@ -10,7 +10,12 @@ const eureka = new Eureka({
     ipAddr: "0.0.0.0",
 
     port: {
-      "$": PORT,
+      "$": 443,
+      "@enabled": false
+    },
+
+    securePort:{
+         "$": 443,
       "@enabled": true
     },
 
