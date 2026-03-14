@@ -1,14 +1,13 @@
 import { Eureka } from "eureka-js-client";
 
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 3000;
 
 const eureka = new Eureka({
 
   instance: {
     app: "AUTH-SERVICE",
-
     hostName: "expense-auth-service-xofu.onrender.com",
-    ipAddr: "expense-auth-service-xofu.onrender.com",
+    ipAddr: "0.0.0.0",
 
     port: {
       "$": PORT,
@@ -16,10 +15,6 @@ const eureka = new Eureka({
     },
 
     vipAddress: "AUTH-SERVICE",
-
-    statusPageUrl: "https://expense-auth-service-xofu.onrender.com/status",
-    healthCheckUrl: "https://expense-auth-service-xofu.onrender.com/health",
-    homePageUrl: "https://expense-auth-service-xofu.onrender.com",
 
     dataCenterInfo: {
       name: "MyOwn",
