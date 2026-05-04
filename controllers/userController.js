@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt"
 import { prisma }  from "../models/db.js";
+import { redis } from "../models/redis.js";
 
 import * as authService from "../services/authService.js"
 
