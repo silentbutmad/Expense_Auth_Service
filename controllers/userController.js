@@ -109,6 +109,7 @@ export const logout = async (req, res) => {
   }
 };
 
+// no otp 
 export const registerUser = async(req,res)=>
 {
     try {
@@ -194,6 +195,141 @@ export const registerUser = async(req,res)=>
         return res.status(500).json({ message: "Internal server error" });
     }
 }
+
+export const startRegister = async (req, res) => {
+  try {
+    const { firstname, lastname, email, mobile, password, conform_password } = req.body;
+
+    if (!firstname || !email || !mobile || !password || !conform_password) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    if (password !== conform_password) {
+      return res.status(400).json({ message: "Passwords do not match" });
+    }
+
+    // validate email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email))
+        {
+            return res.status(400).json({ message: "Invalid email format" });
+        }
+         
+        
+        //validate mobile number
+        const dbmobile ="+91"+mobile;
+        const mobileRegex = /^\+[1-9]\d{9,14}$/;
+        if (!mobileRegex.test(dbmobile))
+        {
+            return res.status(400).json({ message: "Invalid mobile format" });
+        }
+
+        //check for strong password
+        const passwordRegex =/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+        if (!passwordRegex.test(password))
+        {
+            return res.status(400).json({message:"Password must be 8+ chars with uppercase, lowercase, number and special character"});
+        }
+
+    // check existing user
+    const existingUser = await prisma.User.findFirst({
+      where: {
+        OR: [{ email }, { mobile_number: dbmobile }],
+      },
+    });
+
+    if (existingUser) {
+      return res.status(409).json({ message: "User already exists" });
+    }
+
+    // hash password
+    const salt = await bcrypt.genSalt(16);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // ✅ STORE TEMP USER
+    await redis.set(
+      `register:${email}`,
+      JSON.stringify({
+        firstname,
+        lastname,
+        email,
+        mobile: dbmobile,
+        password_hash: hashedPassword,
+        salt,
+      }),
+      "EX",
+      300
+    );
+
+    // ✅ CALL YOUR EXISTING EMAIL OTP FUNCTION
+    await authService.sendEmailOtp({
+      email,
+      ip: req.ip,
+      deviceId: req.headers["x-device-id"] || "web",
+    });
+
+    return res.status(200).json({
+      message: "OTP sent to email",
+    });
+
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      message: error.message || "Internal Server Error",
+    });
+  }
+};
+
+export const verifyRegister = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        message: "Email and OTP required",
+      });
+    }
+
+    // ✅ Verify OTP (reuse your function)
+    await authService.verifyEmailOtp({ email, otp });
+
+    // ✅ Get temp user
+    const data = await redis.get(`register:${email}`);
+
+    if (!data) {
+      return res.status(400).json({
+        message: "Registration expired. Try again",
+      });
+    }
+
+    const userData = JSON.parse(data);
+
+    // ✅ Save to DB
+    const user = await prisma.User.create({
+      data: {
+        first_name: userData.firstname,
+        last_name: userData.lastname,
+        email: userData.email,
+        mobile_number: userData.mobile,
+        password_hash: userData.password_hash,
+        salt: userData.salt,
+        last_login: new Date(),
+      },
+    });
+
+    // ✅ Clean Redis
+    await redis.del(`register:${email}`);
+
+    return res.status(201).json({
+      message: "User registered successfully",
+      user_id: user.user_id,
+    });
+
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      message: error.message || "Internal Server Error",
+    });
+  }
+};
 
 export const sendEmailOtpController = async (req, res) => {
   try {
