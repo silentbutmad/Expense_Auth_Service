@@ -1,203 +1,221 @@
 import * as authRepo from "../repositories/authrepository.js";
-import { hashString } from "../utils/hash.js";
-import { generateAccessToken, generateRefreshToken } from "../utils/jwt.js";
-import jwt from "jsonwebtoken";
-import {sendSmsOtp} from "../utils/sms.js"
-import { prisma }  from "../models/db.js";
+import { hashToken } from "../utils/jwt.js";
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyRefreshToken,
+} from "../utils/jwt.js";
+import { prisma } from "../models/db.js";
 import { redis } from "../models/redis.js";
 import crypto from "crypto";
-import {sendEmail} from "../utils/email.js"
-import bcrypt from "bcrypt"
+import bcrypt from "bcrypt";
+import {
+  blacklistToken,
+  blacklistAllUserTokens,
+} from "./tokenBlacklist.js";
 
+// Configuration
+const MAX_ACTIVE_SESSIONS = 5; // Maximum concurrent sessions per user
+const ACCESS_TOKEN_TTL = 15 * 60; // 15 minutes in seconds
 
-export const login = async ({ email, password }) => {
-
+/**
+ * Login user and generate tokens
+ * @param {Object} params - Login parameters
+ * @param {string} params.email - User email
+ * @param {string} params.password - User password
+ * @param {string} params.deviceId - Device identifier
+ * @param {string} params.ipAddress - IP address
+ * @param {string} params.userAgent - User agent string
+ * @returns {Object} Login result with tokens
+ */
+export const login = async ({
+  email,
+  password,
+  deviceId,
+  ipAddress,
+  userAgent,
+}) => {
   if (!email || !password) {
     throw { status: 400, message: "Email and password are required" };
   }
 
-  // 1️⃣ Find user
+  // 1. Find user
   const user = await prisma.User.findUnique({
-    where: { email }
+    where: { email },
   });
 
   if (!user) {
     throw { status: 401, message: "Invalid email or password" };
   }
 
-  // 2️⃣ Compare password
+  // 2. Compare password
   const isMatch = await bcrypt.compare(password, user.password_hash);
 
   if (!isMatch) {
     throw { status: 401, message: "Invalid email or password" };
   }
 
-  // 3️⃣ Generate Access Token
-const accessToken = generateAccessToken(user);
-
-  // 4️⃣ Generate Refresh Token
- const refreshToken = generateRefreshToken(user);
-
-  // 5️⃣ Save refresh token in DB
-  const tokenHash = crypto
-  .createHash("sha256")
-  .update(refreshToken)
-  .digest("hex");
-
-await prisma.refresh_token.create({
-  data: {
-    user_id: user.user_id,
-    token_hash: tokenHash,
-    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  // 3. Check if user is active
+  if (!user.isactive) {
+    throw { status: 403, message: "Account is deactivated" };
   }
-});
 
-  // 6️⃣ Update last login
+  // 4. Generate tokens
+  const accessToken = generateAccessToken(user);
+  const refreshToken = generateRefreshToken(user);
+
+  // 5. Hash refresh token
+  const tokenHash = hashToken(refreshToken);
+
+  // 6. Check and enforce maximum active sessions
+  const existingTokens = await prisma.Refresh_token.findMany({
+    where: {
+      user_id: user.user_id,
+      revoked: false,
+      expires_at: { gt: new Date() },
+    },
+    orderBy: { created_at: "asc" },
+  });
+
+  // If max sessions reached, remove oldest
+  if (existingTokens.length >= MAX_ACTIVE_SESSIONS) {
+    const tokensToRemove = existingTokens.slice(
+      0,
+      existingTokens.length - MAX_ACTIVE_SESSIONS + 1
+    );
+
+    await prisma.Refresh_token.deleteMany({
+      where: {
+        token_id: { in: tokensToRemove.map((t) => t.token_id) },
+      },
+    });
+  }
+
+  // 7. Save new refresh token
+  await prisma.Refresh_token.create({
+    data: {
+      user_id: user.user_id,
+      token_hash: tokenHash,
+      device_id: deviceId || null,
+      ip_address: ipAddress || null,
+      user_agent: userAgent || null,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+    },
+  });
+
+  // 8. Update last login
   await prisma.User.update({
     where: { user_id: user.user_id },
-    data: { last_login: new Date() }
+    data: { last_login: new Date() },
   });
 
   return {
     message: "Login successful",
     accessToken,
-    refreshToken
+    refreshToken,
+    user: {
+      user_id: user.user_id,
+      email: user.email,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      isverified: user.isverified,
+    },
   };
 };
-export const sendOtp = async ({ mobile, ip, deviceId, country }) => {
 
-  // 1️⃣ 30 sec cooldown per mobile
-  const cooldownKey = `otp:cooldown:${mobile}`;
-  if (await redis.get(cooldownKey)) {
-    throw { status: 429, message: "Wait 30 sec before retrying" };
-  }
-
-  // 2️⃣ IP rate limit (20 per 5 min)
-  const ipKey = `otp:ip:${ip}`;
-  const ipCount = await redis.incr(ipKey);
-  if (ipCount === 1) await redis.expire(ipKey, 300);
-  if (ipCount > 20) {
-    throw { status: 429, message: "Too many OTP requests from IP" };
-  }
-
-  // 3️⃣ User rate limit (5 per 5 min)
-  const userKey = `otp:user:${mobile}`;
-  const userCount = await redis.incr(userKey);
-  if (userCount === 1) await redis.expire(userKey, 300);
-  if (userCount > 5) {
-    throw { status: 429, message: "Too many OTP requests for this number" };
-  }
-
-  // 4️⃣ Device rate limit (10 per 5 min)
-  const deviceKey = `otp:device:${deviceId}`;
-  const deviceCount = await redis.incr(deviceKey);
-  if (deviceCount === 1) await redis.expire(deviceKey, 300);
-  if (deviceCount > 10) {
-    throw { status: 429, message: "Device rate limit exceeded" };
-  }
-
-  // 5️⃣ Country rate limit (500 per 5 min)
-  /*const countryKey = `otp:country:${country}`;
-  const countryCount = await redis.incr(countryKey);
-  if (countryCount === 1) await redis.expire(countryKey, 300);
-  if (countryCount > 500) {
-    throw { status: 429, message: "Country rate limit exceeded" };
-  }*/
-
-  // 6️⃣ Generate OTP
-  const otp = crypto.randomInt(100000, 999999).toString();
-  const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
-
-  // 7️⃣ Send SMS FIRST (important)
-  try {
-    await sendSmsOtp(mobile, otp);
-  } catch (err) {
-    throw { status: 500, message: "Failed to send OTP SMS" };
-  }
-
-  // 8️⃣ Store OTP with 5 min expiry
-  await redis.set(
-    `otp:${mobile}`,
-    JSON.stringify({ otpHash, attempts: 0 }),
-    "EX",
-    300
-  );
-
-  // 9️⃣ Set cooldown 30 sec
-  await redis.set(cooldownKey, "1", "EX", 30);
-
-  
-
-  return { message: "OTP sent securely" };
-};
-
-export const verifyOtp = async ({ mobile, otp }) => {
-
-  const otpKey = `otp:${mobile}`;
-  const data = await redis.get(otpKey);
-
-  if (!data) {
-    throw { status: 400, message: "OTP expired or not found" };
-  }
-
-  const parsed = JSON.parse(data);
-
-  const hashedOtp = crypto
-    .createHash("sha256")
-    .update(otp)
-    .digest("hex");
-
-  if (hashedOtp !== parsed.otpHash) {
-
-    parsed.attempts += 1;
-
-    // Max 3 attempts
-    if (parsed.attempts >= 3) {
-      await redis.del(otpKey);
-      throw { status: 403, message: "Max attempts exceeded" };
-    }
-
-    await redis.set(otpKey, JSON.stringify(parsed), "KEEPTTL");
-
-    throw { status: 400, message: "Incorrect OTP" };
-  }
-
-  // ✅ Success → delete OTP immediately (prevent reuse)
-  await redis.del(otpKey);
-
-  return { message: "OTP verified successfully" };
-};
-
-export const refreshToken = async (refreshToken) => {
+/**
+ * Refresh access token using refresh token
+ * @param {string} refreshToken - Refresh token
+ * @param {string} deviceId - Device identifier
+ * @param {string} ipAddress - IP address
+ * @param {string} userAgent - User agent string
+ * @returns {Object} New tokens
+ */
+export const refreshToken = async (
+  refreshToken,
+  deviceId,
+  ipAddress,
+  userAgent
+) => {
+  // 1. Verify refresh token
   let decoded;
-
   try {
-    decoded = jwt.verify(
-      refreshToken,
-      process.env.JWT_REFRESH_SECRET
-    );
-  } catch {
-    throw { status: 403, message: "Invalid or expired token" };
+    decoded = verifyRefreshToken(refreshToken);
+  } catch (error) {
+    throw { status: 403, message: "Invalid or expired refresh token" };
   }
 
-  const tokenHash = hashString(refreshToken);
+  // 2. Hash the token
+  const tokenHash = hashToken(refreshToken);
 
-  const storedToken = await authRepo.findRefreshToken(tokenHash);
+  // 3. Find hashed token in database
+  const storedToken = await prisma.Refresh_token.findFirst({
+    where: {
+      token_hash: tokenHash,
+      revoked: false,
+      expires_at: { gt: new Date() },
+    },
+    include: {
+      user: true,
+    },
+  });
 
   if (!storedToken) {
     throw { status: 403, message: "Invalid refresh token" };
   }
 
-  await authRepo.deleteRefreshToken(storedToken.id);
+  // 4. Check if user is still active
+  if (!storedToken.user.isactive) {
+    throw { status: 403, message: "Account is deactivated" };
+  }
 
-  const user = await authRepo.findUserById(decoded.user_id);
+  // 5. Delete old refresh token (rotation)
+  await prisma.Refresh_token.delete({
+    where: { token_id: storedToken.token_id },
+  });
 
+  // 6. Generate new tokens
+  const user = storedToken.user;
   const newAccessToken = generateAccessToken(user);
   const newRefreshToken = generateRefreshToken(user);
 
-  const newHash = hashString(newRefreshToken);
+  // 7. Hash new refresh token
+  const newTokenHash = hashToken(newRefreshToken);
 
-  await authRepo.saveRefreshToken(user.user_id, newHash);
+  // 8. Check and enforce maximum active sessions
+  const existingTokens = await prisma.Refresh_token.findMany({
+    where: {
+      user_id: user.user_id,
+      revoked: false,
+      expires_at: { gt: new Date() },
+    },
+    orderBy: { created_at: "asc" },
+  });
+
+  if (existingTokens.length >= MAX_ACTIVE_SESSIONS) {
+    const tokensToRemove = existingTokens.slice(
+      0,
+      existingTokens.length - MAX_ACTIVE_SESSIONS + 1
+    );
+
+    await prisma.Refresh_token.deleteMany({
+      where: {
+        token_id: { in: tokensToRemove.map((t) => t.token_id) },
+      },
+    });
+  }
+
+  // 9. Store new refresh token
+  await prisma.Refresh_token.create({
+    data: {
+      user_id: user.user_id,
+      token_hash: newTokenHash,
+      device_id: deviceId || storedToken.device_id,
+      ip_address: ipAddress || storedToken.ip_address,
+      user_agent: userAgent || storedToken.user_agent,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
 
   return {
     accessToken: newAccessToken,
@@ -205,210 +223,139 @@ export const refreshToken = async (refreshToken) => {
   };
 };
 
+/**
+ * Logout current device/session
+ * @param {string} refreshToken - Refresh token to invalidate
+ * @returns {Object} Success message
+ */
 export const logout = async (refreshToken) => {
+  if (!refreshToken) {
+    throw { status: 400, message: "Refresh token is required" };
+  }
 
-  const user = await prisma.user.findFirst({
-    where: { refreshToken },
+  // Hash the token
+  const tokenHash = hashToken(refreshToken);
+
+  // Find and delete the token
+  const storedToken = await prisma.Refresh_token.findFirst({
+    where: {
+      token_hash: tokenHash,
+      revoked: false,
+    },
   });
 
-  if (!user) {
+  if (!storedToken) {
     throw { status: 400, message: "Invalid refresh token" };
   }
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken: null },
+  // Delete the refresh token
+  await prisma.Refresh_token.delete({
+    where: { token_id: storedToken.token_id },
   });
 
   return { message: "Logged out successfully" };
 };
 
-export const sendEmailOtp = async ({ email, ip, deviceId }) => {
+/**
+ * Logout from all devices
+ * @param {string} userId - User ID
+ * @returns {Object} Success message
+ */
+export const logoutAllDevices = async (userId) => {
+  // 1. Revoke all refresh tokens
+  await prisma.Refresh_token.updateMany({
+    where: {
+      user_id: userId,
+      revoked: false,
+    },
+    data: { revoked: true },
+  });
 
-  // 1️⃣ 30 sec cooldown per email
-  const cooldownKey = `emailotp:cooldown:${email}`;
-  if (await redis.get(cooldownKey)) {
-    throw { status: 429, message: "Wait 30 sec before retrying" };
-  }
+  // 2. Blacklist all access tokens for this user
+  await blacklistAllUserTokens(userId, ACCESS_TOKEN_TTL);
 
-  // 2️⃣ IP rate limit (20 per 5 min)
-  const ipKey = `emailotp:ip:${ip}`;
-  const ipCount = await redis.incr(ipKey);
-  if (ipCount === 1) await redis.expire(ipKey, 300);
-  if (ipCount > 20) {
-    throw { status: 429, message: "Too many OTP requests from IP" };
-  }
-
-  // 3️⃣ Email rate limit (5 per 5 min)
-  const emailKey = `emailotp:user:${email}`;
-  const emailCount = await redis.incr(emailKey);
-  if (emailCount === 1) await redis.expire(emailKey, 300);
-  if (emailCount > 5) {
-    throw { status: 429, message: "Too many OTP requests for this email" };
-  }
-
-  // 4️⃣ Device rate limit (10 per 5 min)
-  const deviceKey = `emailotp:device:${deviceId}`;
-  const deviceCount = await redis.incr(deviceKey);
-  if (deviceCount === 1) await redis.expire(deviceKey, 300);
-  if (deviceCount > 10) {
-    throw { status: 429, message: "Device rate limit exceeded" };
-  }
-
-  // 5️⃣ Generate OTP
-  const otp = crypto.randomInt(100000, 999999).toString();
-  const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
-
-  console.log("otp gentreted")
-
-  // 6️⃣ Send Email FIRST
-  try {
-    await sendEmail(email, otp); // 👈 your email sender function
-  } catch (err) {
-    throw { status: 500, message: "Failed to send OTP Email" };
-  }
-
-  // 7️⃣ Store OTP (5 min expiry)
-  await redis.set(
-    `emailotp:${email}`,
-    JSON.stringify({ otpHash, attempts: 0 }),
-    "EX",
-    300
-  );
-
-  // 8️⃣ Set cooldown 30 sec
-  await redis.set(cooldownKey, "1", "EX", 30);
-
-  return { message: "Email OTP sent securely" };
+  return { message: "Logged out from all devices successfully" };
 };
 
-export const verifyEmailOtp = async ({ email, otp }) => {
-
-  const otpKey = `emailotp:${email}`;
-  const data = await redis.get(otpKey);
-
-  if (!data) {
-    throw { status: 400, message: "OTP expired or not found" };
-  }
-
-  const parsed = JSON.parse(data);
-
-  const hashedOtp = crypto
-    .createHash("sha256")
-    .update(otp)
-    .digest("hex");
-
-  if (hashedOtp !== parsed.otpHash) {
-
-    parsed.attempts += 1;
-
-    // Max 3 attempts
-    if (parsed.attempts >= 3) {
-      await redis.del(otpKey);
-      throw { status: 403, message: "Max attempts exceeded" };
-    }
-
-    await redis.set(otpKey, JSON.stringify(parsed), "KEEPTTL");
-
-    throw { status: 400, message: "Incorrect OTP" };
-  }
-
-  // ✅ Success → delete OTP immediately
-  await redis.del(otpKey);
-
-  return { message: "Email OTP verified successfully" };
+/**
+ * Logout current device only
+ * @param {string} refreshToken - Refresh token
+ * @returns {Object} Success message
+ */
+export const logoutCurrentDevice = async (refreshToken) => {
+  return logout(refreshToken);
 };
 
-export const forgotPassword = async ({ email, ip, deviceId }) => {
-
-  if (!email) {
-    throw { status: 400, message: "Email required" };
-  }
-
-  const user = await prisma.User.findUnique({
-    where: { email }
+/**
+ * Get all active sessions for a user
+ * @param {string} userId - User ID
+ * @returns {Array} List of active sessions
+ */
+export const getActiveSessions = async (userId) => {
+  const tokens = await prisma.Refresh_token.findMany({
+    where: {
+      user_id: userId,
+      revoked: false,
+      expires_at: { gt: new Date() },
+    },
+    select: {
+      token_id: true,
+      device_id: true,
+      ip_address: true,
+      user_agent: true,
+      created_at: true,
+      expires_at: true,
+    },
+    orderBy: { created_at: "desc" },
   });
 
-  if (!user) {
-    throw { status: 404, message: "User not found" };
-  }
-
-  // reuse existing email OTP
-  await sendEmailOtp({ email, ip, deviceId });
-
-  return {
-    message: "Password reset OTP sent to email"
-  };
+  return tokens;
 };
 
-export const resetPassword = async ({ email, otp, newPassword }) => {
-
-  if (!email || !otp || !newPassword) {
-    throw { status: 400, message: "Email, OTP and new password required" };
-  }
-
-  // verify OTP using existing function
-  await verifyEmailOtp({ email, otp });
-
-  // hash new password
-  const salt = await bcrypt.genSalt(16);
-  const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-  // update password
-  await prisma.User.update({
-    where: { email },
-    data: {
-      password_hash: hashedPassword,
-      salt
-    }
+/**
+ * Revoke a specific session
+ * @param {string} userId - User ID
+ * @param {string} tokenId - Token ID to revoke
+ * @returns {Object} Success message
+ */
+export const revokeSession = async (userId, tokenId) => {
+  const token = await prisma.Refresh_token.findFirst({
+    where: {
+      token_id: tokenId,
+      user_id: userId,
+      revoked: false,
+    },
   });
 
-  return {
-    message: "Password reset successful"
-  };
+  if (!token) {
+    throw { status: 404, message: "Session not found" };
+  }
+
+  await prisma.Refresh_token.delete({
+    where: { token_id: tokenId },
+  });
+
+  return { message: "Session revoked successfully" };
 };
 
-export const changePassword = async ({ userId, oldPassword, newPassword }) => {
-
-  if (!oldPassword || !newPassword) {
-    throw { status: 400, message: "Old password and new password required" };
-  }
-
-  // 1️⃣ Find user
-  const user = await prisma.User.findUnique({
-    where: { user_id: userId }
+/**
+ * Clean up expired tokens (run periodically)
+ * @returns {number} Number of deleted tokens
+ */
+export const cleanupExpiredTokens = async () => {
+  const result = await prisma.Refresh_token.deleteMany({
+    where: {
+      expires_at: { lt: new Date() },
+    },
   });
 
-  if (!user) {
-    throw { status: 404, message: "User not found" };
-  }
+  return result.count;
+};
 
-  // 2️⃣ Verify old password
-  const isMatch = await bcrypt.compare(oldPassword, user.password_hash);
+export {
+  login as loginUser,
+  refreshToken as refreshAccessToken,
+  logout as logoutUser,
 
-  if (!isMatch) {
-    throw { status: 401, message: "Old password is incorrect" };
-  }
-
-  // 3️⃣ Hash new password
-  const salt = await bcrypt.genSalt(16);
-  const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-  // 4️⃣ Update password
-  await prisma.User.update({
-    where: { user_id: userId },
-    data: {
-      password_hash: hashedPassword,
-      salt
-    }
-  });
-
-  // 5️⃣ Invalidate all refresh tokens (security)
-  await prisma.refresh_token.deleteMany({
-    where: { user_id: userId }
-  });
-
-  return {
-    message: "Password changed successfully. Please login again."
-  };
+  
 };

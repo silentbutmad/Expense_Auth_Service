@@ -29,7 +29,10 @@ model User {
 model Refresh_token {
   token_id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id      String   @db.Uuid
-  token_hash   String
+  token_hash   String   @unique
+  device_id    String?
+  ip_address   String?
+  user_agent   String?
   expires_at   DateTime
   revoked      Boolean  @default(false)
   created_at   DateTime @default(now())
@@ -37,5 +40,6 @@ model Refresh_token {
   user         User @relation(fields: [user_id], references: [user_id])
 
   @@index([user_id])
+  @@index([token_hash])
 }
 
