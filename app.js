@@ -21,11 +21,11 @@ app.use('/auth',authRoutes);
 app.listen(PORT,()=>{
     console.log(`Auth Server running on http://localhost:${PORT}`);
 
-     eureka.start((error) => {
-    if (error) {
-      console.log("Eureka registration failed:", error);
-    } else {
-      console.log("AUTH-SERVICE registered with Eureka");
-    }
-  });
+    eureka.start((error) => {
+      if (error) {
+        console.log("Eureka registration failed:", error);
+      } else {
+        console.log("AUTH-SERVICE registered with Eureka");
+      }
+    });
 })
