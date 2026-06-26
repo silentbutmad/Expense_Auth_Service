@@ -16,12 +16,7 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
 
 // CORS configuration
-app.use(cors({
-  origin: 'https://help-dashboard.onrender.com',
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization','X-Device-ID'],
-  credentials: true
-}));
+
 
 
 
