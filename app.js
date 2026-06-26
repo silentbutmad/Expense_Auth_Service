@@ -17,27 +17,7 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
 // CORS configuration
 app.use(cors({
-  origin: (origin, callback) => {
-    // 1. Split and trim whitespace from origins
-    const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
-      .split(',')
-      .map(o => o.trim().replace(/\/$/, "")); // Removes trailing slashes
-
-    if (!origin) return callback(null, true);
-    
-    // Clean current incoming origin
-    const cleanOrigin = origin.trim().replace(/\/$/, "");
-
-    // 2. Check match
-    if (allowedOrigins.includes(cleanOrigin) || allowedOrigins.includes('*')) {
-      callback(null, true);
-    } else {
-      // Log the exact mismatch in your Render terminal console
-      console.error(`[CORS Blocked] Incoming: "${cleanOrigin}" | Allowed: ${JSON.stringify(allowedOrigins)}`);
-      callback(new Error('CORS_NOT_ALLOWED'));
-    }
-  },
-  credentials: true,
+  origin: '*', 
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-ID']
 }));
