@@ -31,7 +31,7 @@ const eureka = new Eureka({
 
     serviceUrls: {
       default: [
-        "https://admin:admin123@eurekadiscoveryserver.onrender.com/eureka/apps/"
+        "https://admin:admin123@eurekadiscoveryserver-ick0.onrender.com/eureka/apps/"
       ]
     },
 
