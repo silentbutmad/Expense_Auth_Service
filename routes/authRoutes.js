@@ -7,13 +7,10 @@ import {
   logoutCurrentDevice,
   getActiveSessions,
   revokeSession,
-  getCurrentUser,
   getProfile,
   updateProfile,
 } from '../controllers/authController.js';
 import {
-  sendOtp,
-  verifyOtp,
   sendEmailOtpController,
   verifyEmailOtpController,
   forgotPassword,
@@ -40,8 +37,6 @@ router.post('/refresh-token', refreshToken);
 router.post('/logout', logout);
 
 // OTP Routes
-router.post('/generate-otp', sendOtp);
-router.post('/verify-otp', verifyOtp);
 router.post('/email-otp', sendEmailOtpController);
 router.post('/verify-email-otp', verifyEmailOtpController);
 

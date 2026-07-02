@@ -1,16 +1,32 @@
 import * as authService from "../services/authService.js";
-import { authenticate } from "../middlewares/authMiddleware.js";
 import { prisma } from "../models/db.js";
 
-/**
- * Login Controller
- * POST /auth/login
- */
+const PROFILE_SELECT = {
+  first_name: true,
+  last_name: true,
+  email: true,
+  mobile_number: true,
+  language: true,
+  isverified: true,
+  last_login: true,
+  create_at: true,
+};
+
+const formatProfile = (user) => ({
+  first_name: user.first_name,
+  last_name: user.last_name,
+  email: user.email,
+  mobile_number: user.mobile_number,
+  language: user.language,
+  isverified: user.isverified,
+  last_login: user.last_login,
+  created_at: user.create_at,
+});
+
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Extract device info from headers
     const deviceId = req.headers["x-device-id"] || "unknown-device";
     const ipAddress =
       req.headers["x-forwarded-for"]?.split(",")[0] ||
@@ -40,10 +56,6 @@ export const login = async (req, res) => {
   }
 };
 
-/**
- * Refresh Token Controller
- * POST /auth/refresh
- */
 export const refreshToken = async (req, res) => {
   try {
     const { refreshToken, deviceId, ipAddress, userAgent } = req.body;
@@ -56,7 +68,6 @@ export const refreshToken = async (req, res) => {
       });
     }
 
-    // Extract device info from headers if not provided in body
     const device =
       deviceId || req.headers["x-device-id"] || "unknown-device";
     const ip =
@@ -66,7 +77,7 @@ export const refreshToken = async (req, res) => {
       req.ip;
     const agent = userAgent || req.headers["user-agent"] || "unknown";
 
-    const result = await authService.refreshAccessToken(
+    const result = await authService.refreshToken(
       refreshToken,
       device,
       ip,
@@ -88,10 +99,6 @@ export const refreshToken = async (req, res) => {
   }
 };
 
-/**
- * Logout Controller
- * POST /auth/logout
- */
 export const logout = async (req, res) => {
   try {
     const { refreshToken } = req.body;
@@ -104,7 +111,7 @@ export const logout = async (req, res) => {
       });
     }
 
-    const result = await authService.logoutUser(refreshToken);
+    const result = await authService.logout(refreshToken);
 
     return res.status(200).json({
       success: true,
@@ -120,10 +127,6 @@ export const logout = async (req, res) => {
   }
 };
 
-/**
- * Logout from all devices
- * POST /auth/logout-all
- */
 export const logoutAllDevices = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -144,10 +147,6 @@ export const logoutAllDevices = async (req, res) => {
   }
 };
 
-/**
- * Logout current device
- * POST /auth/logout-current
- */
 export const logoutCurrentDevice = async (req, res) => {
   try {
     const { refreshToken } = req.body;
@@ -176,10 +175,6 @@ export const logoutCurrentDevice = async (req, res) => {
   }
 };
 
-/**
- * Get active sessions
- * GET /auth/sessions
- */
 export const getActiveSessions = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -201,10 +196,6 @@ export const getActiveSessions = async (req, res) => {
   }
 };
 
-/**
- * Revoke specific session
- * DELETE /auth/sessions/:tokenId
- */
 export const revokeSession = async (req, res) => {
   try {
     const userId = req.user.user_id;
@@ -226,71 +217,13 @@ export const revokeSession = async (req, res) => {
   }
 };
 
-/**
- * Get current user profile
- * GET /auth/me
- */
-export const getCurrentUser = async (req, res) => {
-  try {
-    const userId = req.user.user_id;
-
-    const user = await prisma.User.findUnique({
-      where: { user_id: userId },
-      select: {
-        user_id: true,
-        email: true,
-        first_name: true,
-        last_name: true,
-        mobile_number: true,
-        language: true,
-        isverified: true,
-        isactive: true,
-        last_login: true,
-        create_at: true,
-      },
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: user,
-    });
-  } catch (error) {
-    console.error("Get current user error:", error);
-
-    return res.status(error.status || 500).json({
-      success: false,
-      message: error.message || "Internal Server Error",
-    });
-  }
-};
-
-/**
- * Get authenticated user profile
- * GET /auth/profile
- */
 export const getProfile = async (req, res) => {
   try {
     const userId = req.user.user_id;
 
     const user = await prisma.User.findUnique({
       where: { user_id: userId },
-      select: {
-        first_name: true,
-        last_name: true,
-        email: true,
-        mobile_number: true,
-        language: true,
-        isverified: true,
-        last_login: true,
-        create_at: true,
-      },
+      select: PROFILE_SELECT,
     });
 
     if (!user) {
@@ -302,16 +235,7 @@ export const getProfile = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: {
-        first_name: user.first_name,
-        last_name: user.last_name,
-        email: user.email,
-        mobile_number: user.mobile_number,
-        language: user.language,
-        isverified: user.isverified,
-        last_login: user.last_login,
-        created_at: user.create_at,
-      },
+      data: formatProfile(user),
     });
   } catch (error) {
     console.error("Get profile error:", error);
@@ -323,16 +247,11 @@ export const getProfile = async (req, res) => {
   }
 };
 
-/**
- * Update authenticated user profile
- * PUT /auth/updateprofile
- */
 export const updateProfile = async (req, res) => {
   try {
     const userId = req.user.user_id;
     const { first_name, last_name, email, mobile_number, language } = req.body;
 
-    // Reject non-editable fields
     const nonEditableFields = ['user_id', 'password_hash', 'salt', 'isverified', 'isactive', 'failed_attempts', 'last_login', 'created_at', 'updated_at'];
     const providedNonEditable = nonEditableFields.filter(f => req.body[f] !== undefined);
     if (providedNonEditable.length > 0) {
@@ -343,7 +262,6 @@ export const updateProfile = async (req, res) => {
       });
     }
 
-    // Check user exists
     const existingUser = await prisma.User.findUnique({
       where: { user_id: userId },
     });
@@ -355,7 +273,6 @@ export const updateProfile = async (req, res) => {
       });
     }
 
-    // Check email uniqueness if changed
     if (email !== undefined && email !== existingUser.email) {
       const emailTaken = await prisma.User.findUnique({
         where: { email },
@@ -369,7 +286,6 @@ export const updateProfile = async (req, res) => {
       }
     }
 
-    // Check mobile uniqueness if changed
     if (mobile_number !== undefined && mobile_number !== existingUser.mobile_number) {
       const mobileTaken = await prisma.User.findUnique({
         where: { mobile_number },
@@ -383,7 +299,6 @@ export const updateProfile = async (req, res) => {
       }
     }
 
-    // Build update data (only provided fields)
     const updateData = {};
     if (first_name !== undefined) updateData.first_name = first_name;
     if (last_name !== undefined) updateData.last_name = last_name;
@@ -404,33 +319,14 @@ export const updateProfile = async (req, res) => {
       data: updateData,
     });
 
-    // Fetch updated user
     const updatedUser = await prisma.User.findUnique({
       where: { user_id: userId },
-      select: {
-        first_name: true,
-        last_name: true,
-        email: true,
-        mobile_number: true,
-        language: true,
-        isverified: true,
-        last_login: true,
-        create_at: true,
-      },
+      select: PROFILE_SELECT,
     });
 
     return res.status(200).json({
       success: true,
-      data: {
-        first_name: updatedUser.first_name,
-        last_name: updatedUser.last_name,
-        email: updatedUser.email,
-        mobile_number: updatedUser.mobile_number,
-        language: updatedUser.language,
-        isverified: updatedUser.isverified,
-        last_login: updatedUser.last_login,
-        created_at: updatedUser.create_at,
-      },
+      data: formatProfile(updatedUser),
     });
   } catch (error) {
     console.error("Update profile error:", error);
@@ -440,17 +336,4 @@ export const updateProfile = async (req, res) => {
       message: error.message || "Internal Server Error",
     });
   }
-};
-
-export default {
-  login,
-  refreshToken,
-  logout,
-  logoutAllDevices,
-  logoutCurrentDevice,
-  getActiveSessions,
-  revokeSession,
-  getCurrentUser,
-  getProfile,
-  updateProfile,
 };

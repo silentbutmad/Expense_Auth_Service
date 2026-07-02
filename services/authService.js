@@ -1,6 +1,5 @@
-import * as authRepo from "../repositories/authrepository.js";
-import { hashToken } from "../utils/jwt.js";
 import {
+  hashToken,
   generateAccessToken,
   generateRefreshToken,
   verifyRefreshToken,
@@ -472,6 +471,39 @@ export const forgotPassword = async ({ email, ip, deviceId }) => {
   };
 };
 
+export const changePassword = async ({ userId, oldPassword, newPassword }) => {
+  if (!oldPassword || !newPassword) {
+    throw { status: 400, message: "Old password and new password are required" };
+  }
+
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+  if (!passwordRegex.test(newPassword)) {
+    throw { status: 400, message: "Password must be 8+ chars with uppercase, lowercase, number and special character" };
+  }
+
+  const user = await prisma.User.findUnique({ where: { user_id: userId } });
+  if (!user) {
+    throw { status: 404, message: "User not found" };
+  }
+
+  const isMatch = await bcrypt.compare(oldPassword, user.password_hash);
+  if (!isMatch) {
+    throw { status: 401, message: "Current password is incorrect" };
+  }
+
+  const salt = await bcrypt.genSalt(16);
+  const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+  await prisma.User.update({
+    where: { user_id: userId },
+    data: { password_hash: hashedPassword, salt },
+  });
+
+  await blacklistAllUserTokens(userId);
+
+  return { message: "Password changed successfully" };
+};
+
 export const resetPassword = async ({ email, otp, newPassword }) => {
   if (!email || !otp || !newPassword) {
     throw { status: 400, message: "Email, OTP, and new password are required" };
@@ -502,8 +534,3 @@ export const resetPassword = async ({ email, otp, newPassword }) => {
   return { message: "Password reset successfully" };
 };
 
-export {
-  login as loginUser,
-  refreshToken as refreshAccessToken,
-  logout as logoutUser,
-};

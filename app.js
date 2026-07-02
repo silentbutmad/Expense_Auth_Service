@@ -9,18 +9,10 @@ import { prisma } from "./models/db.js";
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-// Security middleware
-app.use(express.json({ limit: '10kb' })); // Limit payload size
+app.use(cors());
+app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
-
-
-// CORS configuration
-
-
-
-
-// Security headers
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -28,7 +20,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Request logging
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
@@ -38,16 +29,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoints
 app.get("/health", async (req, res) => {
   try {
-    // Check database connection
     await prisma.$queryRaw`SELECT 1`;
-    
-    // Check Redis connection
     await redis.ping();
-    
-    res.json({ 
+
+    res.json({
       status: "UP",
       timestamp: new Date().toISOString(),
       services: {
@@ -66,11 +53,9 @@ app.get("/health", async (req, res) => {
 
 app.get("/status", (req, res) => res.send("OK"));
 
-// API routes
 app.use('/auth', authRoutes);
 
-// 404 handler
-app.use( (req, res) => {
+app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: "Route not found",
@@ -78,10 +63,9 @@ app.use( (req, res) => {
   });
 });
 
-// Global error handler
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err);
-  
+
   res.status(err.status || 500).json({
     success: false,
     message: err.message || "Internal Server Error",
@@ -89,31 +73,12 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  
-  server.close(async () => {
-    console.log('HTTP server closed');
-    
-    try {
-      await prisma.$disconnect();
-      await redis.quit();
-      console.log('Database and Redis connections closed');
-      process.exit(0);
-    } catch (error) {
-      console.error('Error during shutdown:', error);
-      process.exit(1);
-    }
-  });
-});
+const gracefulShutdown = async (signal) => {
+  console.log(`${signal} received: closing HTTP server`);
 
-process.on('SIGINT', async () => {
-  console.log('SIGINT signal received: closing HTTP server');
-  
   server.close(async () => {
     console.log('HTTP server closed');
-    
+
     try {
       await prisma.$disconnect();
       await redis.quit();
@@ -124,14 +89,16 @@ process.on('SIGINT', async () => {
       process.exit(1);
     }
   });
-});
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 const server = app.listen(PORT, () => {
   console.log(`Auth Server running on http://localhost:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
-// Register with Eureka
 eureka.start((error) => {
   if (error) {
     console.log("Eureka registration failed:", error);
