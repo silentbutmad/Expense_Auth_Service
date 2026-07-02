@@ -393,8 +393,9 @@ export const sendEmailOtp = async ({ email, ip, deviceId }) => {
 
   // 6️⃣ Send Email FIRST
   try {
-    await sendEmail(email, otp); // 👈 your email sender function
+    await sendEmail(email, otp);
   } catch (err) {
+    console.error("sendEmailOtp catch:", err.response?.data || err.message);
     throw { status: 500, message: "Failed to send OTP Email" };
   }
 
@@ -471,10 +472,38 @@ export const forgotPassword = async ({ email, ip, deviceId }) => {
   };
 };
 
+export const resetPassword = async ({ email, otp, newPassword }) => {
+  if (!email || !otp || !newPassword) {
+    throw { status: 400, message: "Email, OTP, and new password are required" };
+  }
+
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+  if (!passwordRegex.test(newPassword)) {
+    throw { status: 400, message: "Password must be 8+ chars with uppercase, lowercase, number and special character" };
+  }
+
+  await verifyEmailOtp({ email, otp });
+
+  const user = await prisma.User.findUnique({ where: { email } });
+  if (!user) {
+    throw { status: 404, message: "User not found" };
+  }
+
+  const salt = await bcrypt.genSalt(16);
+  const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+  await prisma.User.update({
+    where: { email },
+    data: { password_hash: hashedPassword, salt },
+  });
+
+  await blacklistAllUserTokens(user.user_id);
+
+  return { message: "Password reset successfully" };
+};
+
 export {
   login as loginUser,
   refreshToken as refreshAccessToken,
   logout as logoutUser,
-
-  
 };

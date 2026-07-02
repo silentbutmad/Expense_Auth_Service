@@ -1,6 +1,8 @@
 import bcrypt from "bcrypt"
 import { prisma }  from "../models/db.js";
 import { redis } from "../models/redis.js";
+import crypto from "crypto";
+import { sendSmsOtp } from "../utils/sms.js";
 
 import * as authService from "../services/authService.js"
 
@@ -267,6 +269,75 @@ export const verifyRegister = async (req, res) => {
     });
 
   } catch (error) {
+    return res.status(error.status || 500).json({
+      message: error.message || "Internal Server Error",
+    });
+  }
+};
+
+export const sendOtp = async (req, res) => {
+  try {
+    const { mobile } = req.body;
+
+    if (!mobile) {
+      return res.status(400).json({ message: "Mobile number is required" });
+    }
+
+    const dbmobile = mobile.startsWith("+") ? mobile : `+91${mobile}`;
+
+    const otp = crypto.randomInt(100000, 999999).toString();
+    const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
+
+    await sendSmsOtp(dbmobile, otp);
+
+    await redis.set(
+      `smsotp:${dbmobile}`,
+      JSON.stringify({ otpHash, attempts: 0 }),
+      "EX",
+      300
+    );
+
+    return res.status(200).json({ message: "SMS OTP sent successfully" });
+  } catch (error) {
+    console.error("Send OTP error:", error);
+    return res.status(error.status || 500).json({
+      message: error.message || "Failed to send SMS OTP",
+    });
+  }
+};
+
+export const verifyOtp = async (req, res) => {
+  try {
+    const { mobile, otp } = req.body;
+
+    if (!mobile || !otp) {
+      return res.status(400).json({ message: "Mobile and OTP are required" });
+    }
+
+    const dbmobile = mobile.startsWith("+") ? mobile : `+91${mobile}`;
+
+    const data = await redis.get(`smsotp:${dbmobile}`);
+    if (!data) {
+      return res.status(400).json({ message: "OTP expired or not found" });
+    }
+
+    const parsed = JSON.parse(data);
+    const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
+
+    if (hashedOtp !== parsed.otpHash) {
+      parsed.attempts += 1;
+      if (parsed.attempts >= 3) {
+        await redis.del(`smsotp:${dbmobile}`);
+        return res.status(403).json({ message: "Max attempts exceeded" });
+      }
+      await redis.set(`smsotp:${dbmobile}`, JSON.stringify(parsed), "KEEPTTL");
+      return res.status(400).json({ message: "Incorrect OTP" });
+    }
+
+    await redis.del(`smsotp:${dbmobile}`);
+    return res.status(200).json({ message: "SMS OTP verified successfully" });
+  } catch (error) {
+    console.error("Verify OTP error:", error);
     return res.status(error.status || 500).json({
       message: error.message || "Internal Server Error",
     });
