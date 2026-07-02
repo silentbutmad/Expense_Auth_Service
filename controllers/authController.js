@@ -271,6 +271,177 @@ export const getCurrentUser = async (req, res) => {
   }
 };
 
+/**
+ * Get authenticated user profile
+ * GET /auth/profile
+ */
+export const getProfile = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+
+    const user = await prisma.User.findUnique({
+      where: { user_id: userId },
+      select: {
+        first_name: true,
+        last_name: true,
+        email: true,
+        mobile_number: true,
+        language: true,
+        isverified: true,
+        last_login: true,
+        create_at: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+        mobile_number: user.mobile_number,
+        language: user.language,
+        isverified: user.isverified,
+        last_login: user.last_login,
+        created_at: user.create_at,
+      },
+    });
+  } catch (error) {
+    console.error("Get profile error:", error);
+
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.message || "Internal Server Error",
+    });
+  }
+};
+
+/**
+ * Update authenticated user profile
+ * PUT /auth/updateprofile
+ */
+export const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.user_id;
+    const { first_name, last_name, email, mobile_number, language } = req.body;
+
+    // Reject non-editable fields
+    const nonEditableFields = ['user_id', 'password_hash', 'salt', 'isverified', 'isactive', 'failed_attempts', 'last_login', 'created_at', 'updated_at'];
+    const providedNonEditable = nonEditableFields.filter(f => req.body[f] !== undefined);
+    if (providedNonEditable.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot update non-editable fields: ${providedNonEditable.join(', ')}`,
+        code: "NON_EDITABLE_FIELDS",
+      });
+    }
+
+    // Check user exists
+    const existingUser = await prisma.User.findUnique({
+      where: { user_id: userId },
+    });
+
+    if (!existingUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Check email uniqueness if changed
+    if (email !== undefined && email !== existingUser.email) {
+      const emailTaken = await prisma.User.findUnique({
+        where: { email },
+      });
+      if (emailTaken) {
+        return res.status(409).json({
+          success: false,
+          message: "Email is already in use",
+          code: "EMAIL_EXISTS",
+        });
+      }
+    }
+
+    // Check mobile uniqueness if changed
+    if (mobile_number !== undefined && mobile_number !== existingUser.mobile_number) {
+      const mobileTaken = await prisma.User.findUnique({
+        where: { mobile_number },
+      });
+      if (mobileTaken) {
+        return res.status(409).json({
+          success: false,
+          message: "Mobile number is already in use",
+          code: "MOBILE_EXISTS",
+        });
+      }
+    }
+
+    // Build update data (only provided fields)
+    const updateData = {};
+    if (first_name !== undefined) updateData.first_name = first_name;
+    if (last_name !== undefined) updateData.last_name = last_name;
+    if (email !== undefined) updateData.email = email;
+    if (mobile_number !== undefined) updateData.mobile_number = mobile_number;
+    if (language !== undefined) updateData.language = language;
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No editable fields provided",
+        code: "NO_FIELDS_TO_UPDATE",
+      });
+    }
+
+    await prisma.User.update({
+      where: { user_id: userId },
+      data: updateData,
+    });
+
+    // Fetch updated user
+    const updatedUser = await prisma.User.findUnique({
+      where: { user_id: userId },
+      select: {
+        first_name: true,
+        last_name: true,
+        email: true,
+        mobile_number: true,
+        language: true,
+        isverified: true,
+        last_login: true,
+        create_at: true,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        first_name: updatedUser.first_name,
+        last_name: updatedUser.last_name,
+        email: updatedUser.email,
+        mobile_number: updatedUser.mobile_number,
+        language: updatedUser.language,
+        isverified: updatedUser.isverified,
+        last_login: updatedUser.last_login,
+        created_at: updatedUser.create_at,
+      },
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
+
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.message || "Internal Server Error",
+    });
+  }
+};
+
 export default {
   login,
   refreshToken,
@@ -280,4 +451,6 @@ export default {
   getActiveSessions,
   revokeSession,
   getCurrentUser,
+  getProfile,
+  updateProfile,
 };

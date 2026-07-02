@@ -8,6 +8,8 @@ import {
   getActiveSessions,
   revokeSession,
   getCurrentUser,
+  getProfile,
+  updateProfile,
 } from '../controllers/authController.js';
 import {
   sendOtp,
@@ -52,7 +54,8 @@ router.post('/reset-password', resetPassword);
 // ============================================
 
 // User profile
-router.get('/me', authenticate, getCurrentUser);
+router.get('/profile', authenticate, getProfile);
+router.put('/updateprofile', authenticate, updateProfile);
 
 // Session management
 router.post('/logout-all', authenticate, logoutAllDevices);
