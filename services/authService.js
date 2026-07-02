@@ -13,6 +13,7 @@ import {
   blacklistToken,
   blacklistAllUserTokens,
 } from "./tokenBlacklist.js";
+import { sendEmail } from "../utils/email.js";
 
 // Configuration
 const MAX_ACTIVE_SESSIONS = 5; // Maximum concurrent sessions per user
@@ -352,6 +353,7 @@ export const cleanupExpiredTokens = async () => {
   return result.count;
 };
 export const sendEmailOtp = async ({ email, ip, deviceId }) => {
+  console.log("sendotp in service");
 
   // 1️⃣ 30 sec cooldown per email
   const cooldownKey = `emailotp:cooldown:${email}`;
