@@ -37,8 +37,9 @@ router.post('/refresh-token', refreshToken);
 router.post('/logout', logout);
 
 // OTP Routes
+
+router.post('/verify-otp', verifyEmailOtpController);
 router.post('/email-otp', sendEmailOtpController);
-router.post('/verify-email-otp', verifyEmailOtpController);
 
 // Password Management
 router.post('/forgot-password', forgotPassword);
