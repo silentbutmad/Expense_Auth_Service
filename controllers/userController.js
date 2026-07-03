@@ -4,6 +4,9 @@ import { redis } from "../models/redis.js";
 
 import * as authService from "../services/authService.js"
 
+
+
+
 export const startRegister = async (req, res) => {
   try {
     const { firstname, lastname, email, mobile, password, conform_password } = req.body;

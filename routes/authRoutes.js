@@ -38,8 +38,8 @@ router.post('/logout', logout);
 
 // OTP Routes
 
-router.post('/verify-otp', verifyEmailOtpController);
-router.post('/email-otp', sendEmailOtpController);
+//router.post('/verify-otp', verifyEmailOtpController);
+//router.post('/email-otp', sendEmailOtpController);
 
 // Password Management
 router.post('/forgot-password', forgotPassword);
